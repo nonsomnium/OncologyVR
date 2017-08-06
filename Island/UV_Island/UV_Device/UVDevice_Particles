@@ -1,0 +1,165 @@
+using System.Collections;
+using System.Collections.Generic;
+using UnityEngine;
+
+//Attach to the particle parent empty
+public class UVDevice_Particles : MonoBehaviour {
+
+	public List <uvParticle> particles = new List <uvParticle> ();
+	public List <Transform> tubeParticles = new List <Transform> ();
+	public ParticleSystem emission;
+
+	public float particleSpeed = 2.5f, particleRate = 5f, particleRadius = 0.2f;
+	private bool useChildren = false;
+
+	public class uvParticle 
+	{
+		public Transform empty;
+		public bool childActive = false;
+		public ParticleSystem particleParent;
+		public ParticleSystem particleChild;
+		public float length;
+	}
+
+	#region Control
+
+	public IEnumerator materialChange (Material newMaterial, float penetration)
+	{
+		useChildren = !useChildren;
+		float waitDuration = 0f;
+		//Note: Particle 0 remains constant as it is the system source
+
+		for (int activeParticle = 1; activeParticle < particles.Count; activeParticle++){
+			waitDuration = setMaterial (activeParticle, newMaterial);
+			yield return new WaitForSeconds (waitDuration);
+		}
+
+		setEmission (newMaterial, penetration);
+	}
+
+	float setMaterial (int activeParticle, Material newMaterial)
+	{
+		ParticleSystemRenderer activeSystem = null;
+		if (particles[activeParticle].childActive) {
+			particles [activeParticle].childActive = false;
+			particles [activeParticle].particleChild.Stop ();
+			particles [activeParticle].particleParent.Play ();
+			activeSystem = particles [activeParticle].particleParent.GetComponent<ParticleSystemRenderer>();;
+		} else {
+			particles [activeParticle].childActive = true;
+			particles [activeParticle].particleParent.Stop ();
+			particles [activeParticle].particleChild.Play ();
+			activeSystem = particles [activeParticle].particleChild.GetComponent<ParticleSystemRenderer>();
+		}
+		activeSystem.material = newMaterial;
+		return particles [activeParticle].length / particleSpeed;
+	}
+
+	void setEmission (Material newMaterial, float penetration)
+	{
+		ParticleSystemRenderer emissionRender = emission.GetComponent<ParticleSystemRenderer> ();
+			emissionRender.material = newMaterial;
+		var emissionMain = emission.main;
+			emissionMain.startLifetime = 2f * penetration / particleSpeed;;
+	}
+
+	#endregion
+
+	#region Initial Configuration
+
+	void Awake ()
+	{
+		particles.Clear ();
+		createParticles ();
+		configureParticles ();
+		configureEmission ();
+	}
+
+	void createParticles ()
+	{
+		for (int i = 0; i < tubeParticles.Count - 1; i++) {
+			uvParticle newParticle = new uvParticle ();
+			newParticle.empty = tubeParticles[i];
+			newParticle.particleParent = tubeParticles[i].GetComponent<ParticleSystem> ();
+			newParticle.particleChild = tubeParticles[i].GetChild(0).GetComponent<ParticleSystem> ();
+			deparentChild (i);
+			particles.Add (newParticle);
+		}
+	}
+
+	void deparentChild (int i)
+	{
+		//Having the sub-emittors as actual children of the parents creates problems
+		//Namely, toggling the children doesn't work correctly
+		//This is necessary to avoid that bug
+		Transform particleChild = tubeParticles [i].GetChild (0);
+		particleChild.parent = tubeParticles[i].parent;
+	}
+
+	void configureEmission ()
+	{
+		emission.Stop ();
+		var emissionEmit = emission.emission;
+			emissionEmit.rateOverTime = particleRate;
+		var emissionMain = emission.main;
+			emissionMain.startSpeed = particleSpeed;
+			emissionMain.startLifetime = 0f;
+		emission.Play ();
+	}
+
+	void configureParticles ()
+	{
+		for (int i = 0; i < particles.Count; i++) {
+			particles [i].particleParent.Stop ();
+			particles [i].particleChild.Stop ();
+			setRotation (i);
+			setParticleEmission (i);
+			setParticleShape (i);
+			setParticleMain (i);
+			particles [i].particleParent.Play ();
+		}
+	}
+
+	void setRotation (int i)
+	{
+		Transform currentParticle = tubeParticles [i];
+		Transform nextParticle = tubeParticles [i + 1];
+		currentParticle.rotation = Quaternion.LookRotation (nextParticle.position - currentParticle.position);
+	}
+
+	void setParticleEmission (int i)
+	{
+		var parentEmission = particles [i].particleParent.emission;
+			parentEmission.rateOverTime = particleRate;
+		var childEmission = particles [i].particleChild.emission;
+			childEmission.rateOverTime = particleRate;
+	}
+
+	void setParticleShape (int i)
+	{
+		var parentShape = particles [i].particleParent.shape;
+			parentShape.radius = particleRadius;
+		var childShape = particles [i].particleChild.shape;
+			childShape.radius = particleRadius;
+	}
+
+	void setParticleMain (int i)
+	{
+		Transform currentParticle = tubeParticles [i];
+		Transform nextParticle = tubeParticles [i + 1];
+		float length = Vector3.Distance (currentParticle.position, nextParticle.position);
+		particles [i].length = length;
+
+		var parentMain = particles [i].particleParent.main;
+			parentMain.duration = 1f;
+			parentMain.startSpeed = particleSpeed;
+			parentMain.startLifetime = 2f * length / particleSpeed;
+		var childMain = particles [i].particleChild.main;
+			childMain.duration = 1f;
+			childMain.startSpeed = particleSpeed;
+			childMain.startLifetime = 2f * length / particleSpeed;
+	}
+
+	#endregion
+
+}
